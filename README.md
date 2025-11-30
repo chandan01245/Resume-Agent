@@ -2,7 +2,6 @@
 
 **Nebula** is a next-generation resume screening agent designed to revolutionize the recruitment process. Unlike traditional keyword scanners, Nebula utilizes **Semantic Search** and **LLM-based Reasoning** to deeply understand candidate profiles and match them against job descriptions with human-like nuance.
 
-![Nebula Dashboard](https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=2070&auto=format&fit=crop)
 
 ---
 

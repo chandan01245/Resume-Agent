@@ -12,10 +12,9 @@ Nebula operates on a modern, decoupled architecture ensuring scalability and per
 ![Architecture Diagram](docs/architecture.png)
 
 
-Working Demo:
 ## Working Demo
 
-[▶️ Watch the demo video](docs/Resume-Agent.mp4)
+[▶️ Watch the demo video](https://drive.google.com/file/d/13cJUnU-woB1lA411MvzmqHKmTdti--Km/view?usp=sharing)
 
 ### Data Flow
 1.  **Ingestion**: User uploads PDF -> Backend extracts text -> Embeddings generated -> Stored in ChromaDB.

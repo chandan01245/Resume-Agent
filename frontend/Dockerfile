@@ -8,7 +8,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+# Use `npm install` when no lockfile is present in the build context.
+# `npm ci` requires a package-lock.json; using `npm install` allows the build to proceed.
+RUN npm install
 
 # Copy source code
 COPY . .

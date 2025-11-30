@@ -1,0 +1,9 @@
+@echo off
+echo Starting Resume Agent...
+
+echo Starting Backend...
+start cmd /k "cd backend && python run.py"
+
+echo Starting Frontend...
+cd frontend
+npm run dev

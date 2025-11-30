@@ -1,8 +1,8 @@
 import os
 import tempfile
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from flask import Blueprint, request, jsonify, Response, stream_with_context, send_file
 import json
-from .services import get_chroma_collection, process_pdf, analyze_resume_with_gemini, ingest_resumes_from_disk
+from .services import get_chroma_collection, process_pdf, analyze_resume_with_huggingface, ingest_resumes_from_disk
 from .config import Config
 
 main_bp = Blueprint('main', __name__)
@@ -60,6 +60,29 @@ def get_resume_content(resume_id):
             "filename": result['metadatas'][0].get("source", resume_id),
             "content": result['documents'][0]
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@main_bp.route('/resumes/<resume_id>/pdf', methods=['GET'])
+def get_resume_pdf(resume_id):
+    """
+    Serve the actual PDF file for a resume.
+    """
+    try:
+        # Get the filename from ChromaDB metadata
+        collection = get_chroma_collection()
+        result = collection.get(ids=[resume_id], include=['metadatas'])
+        
+        if not result['ids']:
+            return jsonify({"error": "Resume not found"}), 404
+        
+        filename = result['metadatas'][0].get("source", resume_id)
+        file_path = os.path.join(Config.RESUMES_DIR, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({"error": "PDF file not found on disk"}), 404
+        
+        return send_file(file_path, mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -132,7 +155,7 @@ def analyze_resumes():
         meta = metadatas[i]
         source = meta.get("source", "Unknown")
         
-        analysis_data = analyze_resume_with_gemini(doc, job_description)
+        analysis_data = analyze_resume_with_huggingface(doc, job_description)
         
         analyzed_results.append({
             "resume_name": source,

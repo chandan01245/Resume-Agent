@@ -1,79 +1,125 @@
-# 🌌 Gravitic Equinox Resume Screener
+# 🌌 Nebula: AI-Powered Resume Intelligence
 
-An intelligent, AI-powered resume screening agent that goes beyond keyword matching. It uses **Hugging Face AI** for reasoning and **ChromaDB** for semantic search to analyze resumes against job descriptions, providing detailed feedback on strengths, gaps, and evidence.
+**Nebula** is a next-generation resume screening agent designed to revolutionize the recruitment process. Unlike traditional keyword scanners, Nebula utilizes **Semantic Search** and **LLM-based Reasoning** to deeply understand candidate profiles and match them against job descriptions with human-like nuance.
 
-## 🚀 Features
+![Nebula Dashboard](https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=2070&auto=format&fit=crop)
 
--   **Semantic Search**: Finds candidates based on meaning, not just keywords.
--   **AI Reasoning**: Uses LLMs to explain *why* a candidate is a match.
--   **Evidence Extraction**: Highlights specific quotes from the resume.
--   **Modern UI**: A premium, "Command Center" style interface built with React and Tailwind CSS.
+---
 
-## 🏗️ Project Structure
+## 🏗️ System Architecture
 
+Nebula operates on a modern, decoupled architecture ensuring scalability and performance.
+
+![Architecture Diagram](docs/architecture.png)
+
+### Data Flow
+1.  **Ingestion**: User uploads PDF -> Backend extracts text -> Embeddings generated -> Stored in ChromaDB.
+2.  **Analysis**: User inputs Job Description -> Semantic Search in ChromaDB -> Top Matches + JD sent to Hugging Face LLM -> Structured Analysis returned.
+
+---
+
+## 🚀 Features & Limitations
+
+### Features
+-   **🧠 Semantic Intelligence**: Uses `SentenceTransformers` to understand the *meaning* of skills and experience, not just exact keyword matches.
+-   **🤖 AI Reasoning Engine**: Powered by **Hugging Face (Mistral-7B)**, Nebula explains *why* a candidate is a good fit, highlighting pros, cons, and evidence.
+-   **📂 Smart Ingestion**: 
+    -   **Bulk Upload**: Drag and drop multiple PDFs.
+    -   **Local Sync**: Automatically process resumes from your local `data/resumes` folder.
+-   **⚡ Real-time Analysis**: Get instant feedback and ranking for candidates against any job description.
+-   **🎨 Command Center UI**: A beautiful, dark-mode inspired interface built with **Tailwind CSS** for a premium user experience.
+
+### Limitations
+-   **PDF Only**: Currently only supports PDF resume parsing.
+-   **Rate Limits**: Dependent on the free tier of Hugging Face Inference API, which may have rate limits or cold starts.
+-   **Text Extraction**: Complex PDF layouts (columns, graphics) may occasionally result in imperfect text extraction.
+-   **Context Window**: Extremely long resumes may be truncated before analysis to fit within the LLM's context window.
+
+---
+
+## 🛠️ Technology Stack
+
+| Component | Technology | Description |
+| :--- | :--- | :--- |
+| **Frontend** | React, Vite | Fast, responsive UI with component-based architecture. |
+| **Styling** | Tailwind CSS | Modern utility-first styling for a sleek look. |
+| **Backend** | Flask (Python) | Lightweight and flexible REST API. |
+| **Database** | ChromaDB | Open-source embedding database for semantic search. |
+| **AI Model** | Hugging Face API | Uses `mistralai/Mistral-7B-Instruct-v0.2` for advanced reasoning. |
+| **Embeddings** | all-MiniLM-L6-v2 | Efficient local embedding model for vector search. |
+
+---
+
+## ⚡ Getting Started
+
+### Prerequisites
+-   **Python 3.10+**
+-   **Node.js 18+**
+-   **Hugging Face API Key** (Free)
+
+### 1. Backend Setup
+```bash
+cd backend
+pip install -r requirements.txt
 ```
-Resume-Agent/
-├── backend/                # Flask Backend
-│   ├── app/
-│   │   ├── __init__.py    # App Factory
-│   │   ├── routes.py      # API Endpoints
-│   │   ├── services.py    # Business Logic (Gemini, ChromaDB)
-│   │   └── config.py      # Configuration
-│   ├── run.py             # Entry Point
-│   └── requirements.txt
-├── frontend/               # React Frontend (Vite)
-├── data/                   # Data Storage
-│   ├── resumes/           # Uploaded Resumes
-│   └── chroma_db/         # Vector Database
-└── start_app.bat          # One-click start script
+
+### 2. Frontend Setup
+```bash
+cd frontend
+npm install
 ```
 
-## 🛠️ Setup & Installation
+### 3. Configuration
+Create a `.env` file in the root directory:
+```env
+HUGGINGFACE_API_KEY=your_api_key_here
+```
 
-1.  **Prerequisites**:
-    *   Python 3.10+
-    *   Node.js 18+
-    *   Hugging Face API Key
-
-2.  **Backend Setup**:
-    ```bash
-    cd backend
-    pip install -r requirements.txt
-    ```
-
-3.  **Frontend Setup**:
-    ```bash
-    cd frontend
-    npm install
-    ```
-
-4.  **Environment Variables**:
-    *   Create a `.env` file in the root directory.
-    *   Add your API key: `HUGGINGFACE_API_KEY=your_huggingface_api_key_here`
-    *   Get your free API key from: https://huggingface.co/settings/tokens
-
-## ▶️ Running the App
-
-Simply run the start script:
+### 4. Launch Nebula 🚀
+You can start the entire application with the provided script:
 ```bash
 ./start_app.bat
 ```
+*Alternatively, run backend and frontend in separate terminals.*
 
-Or run manually:
-*   **Backend**: `cd backend && python run.py` (Runs on port 5000)
-*   **Frontend**: `cd frontend && npm run dev` (Runs on port 5173)
+---
 
-## 🧠 How it Works
+## 📖 How It Works
 
-1.  **Upload**: Resumes are converted to text and embedded into ChromaDB.
-2.  **Search**: When you enter a Job Description, we first find the top 10 semantic matches.
-3.  **Analyze**: We send the top matches + JD to Hugging Face AI (Mistral-7B-Instruct).
-4.  **Reason**: The AI evaluates the fit, extracting pros, cons, and evidence.
-5.  **Display**: The UI shows a detailed breakdown for each candidate.
+### Phase 1: Ingestion 📥
+1.  **Upload**: Resumes are added via the UI or placed in the `data/resumes` folder.
+2.  **Extraction**: The system extracts text from PDFs using `pypdf`.
+3.  **Embedding**: Text is converted into vector embeddings using a local Sentence Transformer model.
+4.  **Storage**: Vectors and metadata are stored in **ChromaDB**.
 
-## 🔑 Getting Your Hugging Face API Key
+### Phase 2: Analysis 🔍
+1.  **Search**: You provide a Job Description (JD).
+2.  **Retrieval**: Nebula queries ChromaDB for the top 10 semantically similar resumes.
+3.  **Reasoning**: The top matches and the JD are sent to the **Hugging Face Inference API**.
+4.  **Evaluation**: The LLM acts as an expert recruiter, evaluating the candidate and returning a structured JSON response with:
+    -   Match Score (0-100)
+    -   Summary
+    -   Strengths (Pros)
+    -   Gaps (Cons)
+    -   Evidence (Quotes)
+5.  **Presentation**: Results are displayed in the dashboard, ranked by relevance.
 
-1. Go to [Hugging Face](https://huggingface.co/join) and create a free account
-2. Navigate to [Settings > Access Tokens](https://huggingface.co/settings/tokens)
-3. Click "New token" and create a token with "Read" access
-4. Copy the token and paste it in your `.env` file as `HUGGINGFACE_API_KEY`
+---
+
+## 🔮 Potential Improvements
+
+-   **Multi-Format Support**: Add support for DOCX and TXT files.
+-   **Advanced OCR**: Integrate OCR for image-based PDFs.
+-   **Custom Models**: Allow users to select different LLMs (e.g., GPT-4, Claude) via configuration.
+-   **Candidate Comparison**: Side-by-side comparison view for top candidates.
+-   **Email Integration**: One-click email drafting to contact promising candidates.
+-   **Feedback Loop**: Allow users to rate the AI's analysis to improve future results (RLHF).
+
+---
+
+## 🤝 Contributing
+Contributions are welcome! Please fork the repository and submit a pull request.
+
+---
+
+*Built with ❤️ by the Nebula Team*

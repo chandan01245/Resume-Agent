@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: resume-agent-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - FLASK_ENV=production
+    volumes:
+      - ./data:/app/data
+      - resume-data:/app/data/resumes
+      - chroma-data:/app/data/chroma_db
+    networks:
+      - resume-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/resumes"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: resume-agent-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - resume-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  resume-network:
+    driver: bridge
+
+volumes:
+  resume-data:
+    driver: local
+  chroma-data:
+    driver: local

@@ -1,0 +1,76 @@
+name: Docker Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Create .env file
+      run: |
+        echo "HUGGINGFACE_API_KEY=test_key" > .env
+        echo "FLASK_ENV=production" >> .env
+    
+    - name: Build Docker images
+      run: docker-compose build
+    
+    - name: Start services
+      run: docker-compose up -d
+    
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for backend..."
+        timeout 60 sh -c 'until curl -f http://localhost:5000/resumes; do sleep 2; done'
+        echo "Waiting for frontend..."
+        timeout 30 sh -c 'until curl -f http://localhost:80; do sleep 2; done'
+    
+    - name: Check service health
+      run: |
+        docker-compose ps
+        docker-compose logs backend
+    
+    - name: Test backend API
+      run: |
+        curl -f http://localhost:5000/resumes || exit 1
+        echo "Backend API is responding"
+    
+    - name: Test frontend
+      run: |
+        curl -f http://localhost:80 || exit 1
+        echo "Frontend is serving"
+    
+    - name: Stop services
+      if: always()
+      run: docker-compose down -v
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

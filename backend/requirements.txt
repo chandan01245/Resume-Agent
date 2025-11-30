@@ -5,3 +5,4 @@ pypdf
 python-dotenv
 requests
 sentence-transformers
+huggingface_hub

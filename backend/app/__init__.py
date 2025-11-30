@@ -7,7 +7,16 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     
-    CORS(app)
+    # Configure CORS for production
+    CORS(app, resources={
+        r"/*": {
+            "origins": ["*"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "expose_headers": ["Content-Type"],
+            "supports_credentials": False
+        }
+    })
     
     from .routes import main_bp
     app.register_blueprint(main_bp)

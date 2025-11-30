@@ -1,20 +1,26 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertCircle, Briefcase,
-  CheckCircle,
-  Eye,
-  FileText,
-  Filter,
-  Home,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Upload,
-  User,
-  X
+    AlertCircle, Briefcase,
+    CheckCircle,
+    Eye,
+    FileText,
+    Filter,
+    Home,
+    RefreshCw,
+    Search,
+    Sparkles,
+    Upload,
+    User,
+    X
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { analyzeResumes, getResumes, getResumeContent, uploadResumes } from './api';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+import { analyzeResumes, getResumePdfUrl, getResumes, uploadResumes } from './api';
+
+// Set up PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const JOB_TITLES = [
   "AI Research Intern",
@@ -54,16 +60,53 @@ const Notification = ({ message, type, onClose }) => {
   );
 };
 
+const useCountUp = (end, duration = 1500) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let startTime;
+    let animationFrame;
+
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = timestamp - startTime;
+      const percentage = Math.min(progress / duration, 1);
+      
+      // Ease out quart
+      const ease = 1 - Math.pow(1 - percentage, 4);
+      
+      setCount(Math.floor(end * ease));
+
+      if (progress < duration) {
+        animationFrame = requestAnimationFrame(animate);
+      }
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+
+    return () => cancelAnimationFrame(animationFrame);
+  }, [end, duration]);
+
+  return count;
+};
+
 const CircularProgress = ({ percentage, color }) => {
-  const radius = 28;
-  const stroke = 4;
+  const animatedPercentage = useCountUp(percentage);
+  const radius = 45;
+  const stroke = 6;
   const normalizedRadius = radius - stroke * 2;
   const circumference = normalizedRadius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+  const strokeDashoffset = circumference - (animatedPercentage / 100) * circumference;
 
   return (
     <div className="relative flex items-center justify-center">
-      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90">
+      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90 drop-shadow-lg">
+        <defs>
+            <linearGradient id={`gradient-${percentage}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor={color} stopOpacity="0.8" />
+                <stop offset="100%" stopColor={color} />
+            </linearGradient>
+        </defs>
         <circle
           stroke="#e2e8f0"
           strokeWidth={stroke}
@@ -71,12 +114,13 @@ const CircularProgress = ({ percentage, color }) => {
           r={normalizedRadius}
           cx={radius}
           cy={radius}
+          className="opacity-30"
         />
         <circle
-          stroke={color}
+          stroke={`url(#gradient-${percentage})`}
           strokeWidth={stroke}
           strokeDasharray={circumference + ' ' + circumference}
-          style={{ strokeDashoffset, transition: 'stroke-dashoffset 0.5s ease-in-out' }}
+          style={{ strokeDashoffset, transition: 'stroke-dashoffset 0.5s ease-out' }}
           strokeLinecap="round"
           fill="transparent"
           r={normalizedRadius}
@@ -84,7 +128,10 @@ const CircularProgress = ({ percentage, color }) => {
           cy={radius}
         />
       </svg>
-      <span className="absolute text-sm font-bold text-slate-700">{percentage}%</span>
+      <div className="absolute flex flex-col items-center justify-center">
+        <span className="text-2xl font-black text-slate-800">{animatedPercentage}%</span>
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Match</span>
+      </div>
     </div>
   );
 };
@@ -101,7 +148,16 @@ const NavItem = ({ icon, label, active, onClick, badge }) => (
 );
 
 const ResumeViewDialog = ({ resume, onClose }) => {
+  const [numPages, setNumPages] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+
   if (!resume) return null;
+
+  const pdfUrl = getResumePdfUrl(resume.id);
+
+  function onDocumentLoadSuccess({ numPages }) {
+    setNumPages(numPages);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -119,7 +175,7 @@ const ResumeViewDialog = ({ resume, onClose }) => {
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-800">{resume.filename}</h2>
-              <p className="text-xs text-slate-500">Resume Content</p>
+              <p className="text-xs text-slate-500">PDF Resume</p>
             </div>
           </div>
           <button
@@ -130,15 +186,50 @@ const ResumeViewDialog = ({ resume, onClose }) => {
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="bg-slate-50 rounded-lg p-6">
-            <pre className="whitespace-pre-wrap text-sm text-slate-700 font-mono leading-relaxed">
-              {resume.content}
-            </pre>
-          </div>
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center bg-slate-50">
+          <Document
+            file={pdfUrl}
+            onLoadSuccess={onDocumentLoadSuccess}
+            loading={
+              <div className="flex items-center justify-center p-8">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+              </div>
+            }
+            error={
+              <div className="text-red-500 p-4">
+                Failed to load PDF. Please try again.
+              </div>
+            }
+          >
+            <Page 
+              pageNumber={pageNumber}
+              renderTextLayer={true}
+              renderAnnotationLayer={true}
+              className="shadow-lg"
+            />
+          </Document>
         </div>
 
-        <div className="p-4 border-t border-slate-200 flex justify-end">
+        <div className="p-4 border-t border-slate-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPageNumber(page => Math.max(1, page - 1))}
+              disabled={pageNumber <= 1}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 rounded-lg text-sm font-medium transition-colors"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-slate-600">
+              Page {pageNumber} of {numPages || '...'}
+            </span>
+            <button
+              onClick={() => setPageNumber(page => Math.min(numPages, page + 1))}
+              disabled={pageNumber >= numPages}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 rounded-lg text-sm font-medium transition-colors"
+            >
+              Next
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
@@ -166,7 +257,6 @@ function App() {
   const [notification, setNotification] = useState(null);
   const [ingestProgress, setIngestProgress] = useState(null);
   const [viewingResume, setViewingResume] = useState(null);
-  const [loadingResume, setLoadingResume] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -193,17 +283,8 @@ function App() {
       }
   };
 
-  const handleViewResume = async (resumeId) => {
-      setLoadingResume(true);
-      try {
-          const response = await getResumeContent(resumeId);
-          setViewingResume(response.data);
-      } catch (error) {
-          console.error("Failed to fetch resume content", error);
-          showNotification("Failed to load resume content", "error");
-      } finally {
-          setLoadingResume(false);
-      }
+  const handleViewResume = async (resume) => {
+      setViewingResume(resume);
   };
 
   const handleIngest = async () => {
@@ -310,9 +391,9 @@ function App() {
   };
 
   const getMatchLabel = (score) => {
-    if (score >= 80) return { text: "GREAT MATCH", color: "#10b981", bg: "bg-emerald-950" }; 
-    if (score >= 60) return { text: "GOOD MATCH", color: "#0ea5e9", bg: "bg-sky-950" };   
-    return { text: "FAIR MATCH", color: "#f59e0b", bg: "bg-amber-950" };                    
+    if (score >= 80) return { text: "GREAT MATCH", color: "#10b981", bg: "bg-emerald-950", lightBg: "bg-emerald-50 text-emerald-700" }; 
+    if (score >= 60) return { text: "GOOD MATCH", color: "#0ea5e9", bg: "bg-sky-950", lightBg: "bg-sky-50 text-sky-700" };   
+    return { text: "FAIR MATCH", color: "#f59e0b", bg: "bg-amber-950", lightBg: "bg-amber-50 text-amber-700" };                    
   };
 
   return (
@@ -493,13 +574,19 @@ function App() {
                     
                     return (
                         <motion.div
+                            layout
                             key={result.id || index}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: index * 0.1 }}
                             className="bg-white rounded-2xl p-0 shadow-sm border border-slate-100 hover:shadow-md transition-shadow overflow-hidden group"
                         >
-                            <div className="flex flex-col md:flex-row">
+                            <div className="flex flex-col md:flex-row relative">
+                            {index === 0 && result.score >= 70 && (
+                                <div className="absolute top-0 left-0 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] font-bold px-3 py-1 rounded-br-xl z-10 shadow-sm flex items-center gap-1 animate-pulse">
+                                    <Sparkles size={12} fill="white" /> TOP MATCH
+                                </div>
+                            )}
                             {/* Main Card Content */}
                             <div className="p-6 flex-1">
                                 <div className="flex items-start justify-between mb-2">
@@ -529,43 +616,45 @@ function App() {
                             </div>
 
                             {/* Match Score Panel (Right Side) */}
-                            <div className="bg-slate-900 w-full md:w-64 p-6 flex flex-col items-center justify-center text-center relative overflow-hidden">
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                            <div className="bg-slate-50 w-full md:w-64 p-6 flex flex-col items-center justify-center text-center relative overflow-hidden border-l border-slate-100">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
                                 
-                                <div className="mb-2">
+                                <div className="mb-3 scale-110">
                                     <CircularProgress percentage={result.score} color={matchColor} />
                                 </div>
-                                <h4 className="text-white font-bold tracking-wide uppercase text-sm mb-4">{matchLabel.text}</h4>
+                                <div className={`px-4 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase ${matchLabel.lightBg}`}>
+                                    {matchLabel.text}
+                                </div>
                             </div>
                             </div>
 
                             {/* Analysis Dropdown (Optional/Expandable) */}
                             <div className="bg-slate-50 px-6 py-4 border-t border-slate-100">
-                            <p className="text-sm text-slate-600 leading-relaxed mb-4">
+                            <p className="text-lg text-slate-600 leading-relaxed mb-4">
                                 <span className="font-semibold text-slate-800">AI Summary: </span>
                                 {result.analysis || result.summary}
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                 <div>
-                                    <h5 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1">
-                                        <CheckCircle size={12} /> Strengths
+                                    <h5 className="text-base font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+                                        <CheckCircle size={16} /> Strengths
                                     </h5>
                                     <ul className="space-y-1">
                                         {result.pros && result.pros.map((pro, i) => (
-                                        <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+                                        <li key={i} className="text-base text-slate-600 flex items-start gap-2">
                                             <span className="text-emerald-500 mt-0.5">•</span> {pro}
                                         </li>
                                         ))}
                                     </ul>
                                 </div>
                                 <div>
-                                    <h5 className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2 flex items-center gap-1">
-                                        <AlertCircle size={12} /> Gaps
+                                    <h5 className="text-base font-bold text-amber-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+                                        <AlertCircle size={16} /> Gaps
                                     </h5>
                                     <ul className="space-y-1">
                                         {result.cons && result.cons.map((con, i) => (
-                                        <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+                                        <li key={i} className="text-base text-slate-600 flex items-start gap-2">
                                             <span className="text-amber-500 mt-0.5">•</span> {con}
                                         </li>
                                         ))}
@@ -575,10 +664,10 @@ function App() {
                             
                             {result.evidence && result.evidence.length > 0 && (
                                 <div className="pt-3 border-t border-slate-200/50">
-                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Key Evidence</h5>
+                                    <h5 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Key Evidence</h5>
                                     <div className="flex flex-wrap gap-2">
                                         {result.evidence.map((ev, i) => (
-                                        <span key={i} className="text-[10px] bg-white text-slate-500 px-2 py-1 rounded border border-slate-200 italic shadow-sm">
+                                        <span key={i} className="text-sm bg-white text-slate-500 px-2 py-1 rounded border border-slate-200 italic shadow-sm">
                                             "{ev}"
                                         </span>
                                         ))}
@@ -628,9 +717,8 @@ function App() {
                                         <p className="text-xs text-slate-500">ID: {resume.id}</p>
                                     </div>
                                     <button 
-                                        onClick={() => handleViewResume(resume.id)}
-                                        disabled={loadingResume}
-                                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-50"
+                                        onClick={() => handleViewResume(resume)}
+                                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
                                     >
                                         <Eye size={16} />
                                         View

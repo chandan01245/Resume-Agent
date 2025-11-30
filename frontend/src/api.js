@@ -29,3 +29,7 @@ export const getResumes = async () => {
 export const getResumeContent = async (resumeId) => {
     return axios.get(`${API_URL}/resumes/${resumeId}`);
 };
+
+export const getResumePdfUrl = (resumeId) => {
+    return `${API_URL}/resumes/${resumeId}/pdf`;
+};

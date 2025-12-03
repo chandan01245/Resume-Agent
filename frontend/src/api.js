@@ -1,8 +1,20 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const uploadResumes = async (files) => {
+  const formData = new FormData();
+  Array.from(files).forEach(file => {
+    formData.append('files', file);
+  });
+  return axios.post(`${API_URL}/upload`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
+export const uploadFolder = async (files) => {
   const formData = new FormData();
   Array.from(files).forEach(file => {
     formData.append('files', file);

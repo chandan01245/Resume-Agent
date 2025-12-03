@@ -5,6 +5,7 @@ import {
     Eye,
     FileText,
     Filter,
+    Folder,
     Home,
     RefreshCw,
     Search,
@@ -17,7 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { analyzeResumes, getResumePdfUrl, getResumes, uploadResumes } from './api';
+import { analyzeResumes, getResumePdfUrl, getResumes, uploadResumes, uploadFolder } from './api';
 
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -92,20 +93,27 @@ const useCountUp = (end, duration = 1500) => {
 
 const CircularProgress = ({ percentage, color }) => {
   const animatedPercentage = useCountUp(percentage);
-  const radius = 45;
-  const stroke = 6;
+  const radius = 50;
+  const stroke = 8;
   const normalizedRadius = radius - stroke * 2;
   const circumference = normalizedRadius * 2 * Math.PI;
   const strokeDashoffset = circumference - (animatedPercentage / 100) * circumference;
 
   return (
     <div className="relative flex items-center justify-center">
-      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90 drop-shadow-lg">
+      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90 drop-shadow-xl">
         <defs>
-            <linearGradient id={`gradient-${percentage}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor={color} stopOpacity="0.8" />
-                <stop offset="100%" stopColor={color} />
+            <linearGradient id={`gradient-${percentage}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={color} stopOpacity="1" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.7" />
             </linearGradient>
+            <filter id="glow">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
         </defs>
         <circle
           stroke="#e2e8f0"
@@ -114,23 +122,24 @@ const CircularProgress = ({ percentage, color }) => {
           r={normalizedRadius}
           cx={radius}
           cy={radius}
-          className="opacity-30"
+          className="opacity-20"
         />
         <circle
           stroke={`url(#gradient-${percentage})`}
           strokeWidth={stroke}
           strokeDasharray={circumference + ' ' + circumference}
-          style={{ strokeDashoffset, transition: 'stroke-dashoffset 0.5s ease-out' }}
+          style={{ strokeDashoffset, transition: 'stroke-dashoffset 1s cubic-bezier(0.4, 0, 0.2, 1)' }}
           strokeLinecap="round"
           fill="transparent"
           r={normalizedRadius}
           cx={radius}
           cy={radius}
+          filter="url(#glow)"
         />
       </svg>
       <div className="absolute flex flex-col items-center justify-center">
-        <span className="text-2xl font-black text-slate-800">{animatedPercentage}%</span>
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Match</span>
+        <span className="text-3xl font-black text-slate-800 leading-none">{animatedPercentage}%</span>
+        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Match</span>
       </div>
     </div>
   );
@@ -258,6 +267,8 @@ function App() {
   const [ingestProgress, setIngestProgress] = useState(null);
   const [viewingResume, setViewingResume] = useState(null);
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+  const [selectedFolder, setSelectedFolder] = useState(null);
 
   useEffect(() => {
     // handleIngest();
@@ -347,6 +358,10 @@ function App() {
       fileInputRef.current.click();
   };
 
+  const handleFolderSelect = () => {
+      folderInputRef.current.click();
+  };
+
   const handleFileChange = async (event) => {
       const files = event.target.files;
       if (!files || files.length === 0) return;
@@ -362,6 +377,44 @@ function App() {
           showNotification("Failed to upload resumes", "error");
       } finally {
           setUploading(false);
+      }
+  };
+
+  const handleFolderChange = async (event) => {
+      const files = event.target.files;
+      if (!files || files.length === 0) {
+          setSelectedFolder(null);
+          return;
+      }
+
+      setSelectedFolder({ name: `${files.length} files selected`, files });
+      showNotification(`Selected ${files.length} files from folder`, "info");
+  };
+
+  const handleSyncFolder = async () => {
+      if (!selectedFolder || !selectedFolder.files) {
+          showNotification("Please select a folder first", "error");
+          return;
+      }
+
+      setIngesting(true);
+      setIngestProgress({ percent: 0, message: "Starting..." });
+      
+      try {
+          const response = await uploadFolder(selectedFolder.files);
+          showNotification(response.data.message, "success");
+          
+          // Now ingest the uploaded files
+          await handleIngest();
+          
+          // Clear selection
+          setSelectedFolder(null);
+          folderInputRef.current.value = null;
+      } catch (error) {
+          console.error("Folder sync failed", error);
+          showNotification("Failed to sync folder", "error");
+          setIngesting(false);
+          setIngestProgress(null);
       }
   };
 
@@ -461,7 +514,7 @@ function App() {
         
         {/* Top Header */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10">
-           <div className="flex items-center gap-6">
+           <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-slate-800">
                   {activeTab === 'dashboard' ? 'Candidate Ranking' : 'Resume Database'}
               </h1>
@@ -473,6 +526,16 @@ function App() {
                   ref={fileInputRef} 
                   onChange={handleFileChange}
               />
+              <input 
+                  type="file" 
+                  multiple 
+                  accept=".pdf" 
+                  webkitdirectory=""
+                  directory=""
+                  className="hidden" 
+                  ref={folderInputRef} 
+                  onChange={handleFolderChange}
+              />
               <button 
                   onClick={handleUploadClick}
                   disabled={uploading}
@@ -481,27 +544,38 @@ function App() {
                   <Upload size={16} />
                   {uploading ? "Uploading..." : "Upload Resumes"}
               </button>
+              <button 
+                  onClick={handleFolderSelect}
+                  disabled={uploading || ingesting}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm"
+              >
+                  <Folder size={16} />
+                  {selectedFolder ? selectedFolder.name : "Select Folder"}
+              </button>
+              <button 
+                  onClick={handleSyncFolder}
+                  disabled={!selectedFolder || ingesting}
+                  className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                  <RefreshCw size={16} className={ingesting ? "animate-spin" : ""} />
+                  {ingesting ? "Syncing..." : "Sync Folder"}
+              </button>
            </div>
            <div className="flex items-center gap-3">
               {ingesting && ingestProgress && (
                   <div className="flex flex-col items-end mr-4 w-48">
-                      <div className="text-xs text-slate-500 mb-1">{ingestProgress.message}</div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="text-xs font-medium text-slate-700 mb-1">{ingestProgress.message}</div>
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
                           <div 
-                              className="h-full bg-emerald-500 transition-all duration-300 ease-out"
+                              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all duration-300 ease-out relative"
                               style={{ width: `${ingestProgress.percent}%` }}
-                          ></div>
+                          >
+                              <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                          </div>
                       </div>
+                      <div className="text-xs font-bold text-emerald-600 mt-1">{ingestProgress.percent}%</div>
                   </div>
               )}
-              <button 
-                onClick={handleIngest}
-                disabled={ingesting}
-                className="text-slate-500 hover:text-emerald-600 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors"
-              >
-                 <RefreshCw size={14} className={ingesting ? "animate-spin" : ""} />
-                 {ingesting ? "Syncing..." : "Sync Local Folder"}
-              </button>
            </div>
         </header>
 
@@ -609,8 +683,12 @@ function App() {
                                 </div>
 
                                 <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-50">
-                                    <button className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
-                                        View Profile
+                                    <button 
+                                        onClick={() => handleViewResume({ id: result.id, filename: result.resume_name })}
+                                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
+                                    >
+                                        <Eye size={16} />
+                                        View Resume
                                     </button>
                                 </div>
                             </div>

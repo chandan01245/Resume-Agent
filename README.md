@@ -29,9 +29,12 @@ Nebula operates on a modern, decoupled architecture ensuring scalability and per
 -   **🤖 AI Reasoning Engine**: Powered by **Hugging Face (Mistral-7B)**, Nebula explains *why* a candidate is a good fit, highlighting pros, cons, and evidence.
 -   **📂 Smart Ingestion**: 
     -   **Bulk Upload**: Drag and drop multiple PDFs.
+    -   **Folder Selection**: Select an entire folder of resumes for batch processing.
     -   **Local Sync**: Automatically process resumes from your local `data/resumes` folder.
 -   **⚡ Real-time Analysis**: Get instant feedback and ranking for candidates against any job description.
--   **🎨 Command Center UI**: A beautiful, dark-mode inspired interface built with **Tailwind CSS** for a premium user experience.
+-   **👁️ Resume Viewer**: Click on any analyzed candidate to view their full resume PDF directly in the app.
+-   **📊 Enhanced UI**: Improved circular progress indicators with gradient effects and percentage display.
+-   **🎨 Command Center UI**: A beautiful, modern interface built with **Tailwind CSS** for a premium user experience.
 
 ### Limitations
 -   **PDF Only**: Currently only supports PDF resume parsing.
@@ -80,11 +83,35 @@ HUGGINGFACE_API_KEY=your_api_key_here
 ```
 
 ### 4. Launch Nebula 🚀
-You can start the entire application with the provided script:
+Run backend and frontend in separate terminals:
+
+**Backend:**
 ```bash
-./start_app.bat
+cd backend
+python run.py
 ```
-*Alternatively, run backend and frontend in separate terminals.*
+
+**Frontend:**
+```bash
+cd frontend
+npm run dev
+```
+
+### 🚂 Railway Deployment
+
+Deploy Nebula to Railway with ease:
+
+1. **Fork this repository** to your GitHub account
+2. **Create a new project** on [Railway](https://railway.app)
+3. **Connect your GitHub repository**
+4. **Add environment variables** in Railway dashboard:
+   ```
+   HUGGINGFACE_API_KEY=your_api_key_here
+   FLASK_ENV=production
+   ```
+5. **Deploy** - Railway will automatically detect the nixpacks.toml configuration
+
+The app will be available at your Railway-provided URL
 
 ---
 

@@ -21,12 +21,11 @@ class Config:
     
     CHROMA_DB_DIR = os.path.join(DATA_DIR, 'chroma_db')
     
-    if not os.path.exists(CHROMA_DB_DIR):
-        os.makedirs(CHROMA_DB_DIR)
+    os.makedirs(CHROMA_DB_DIR, exist_ok=True)
     
     # Create default resumes directory if no custom path is set
-    if not _env_resumes_path and not os.path.exists(_resumes_dir):
-        os.makedirs(_resumes_dir)
+    if not _env_resumes_path:
+        os.makedirs(_resumes_dir, exist_ok=True)
     
     @classmethod
     def get_resumes_dir(cls):

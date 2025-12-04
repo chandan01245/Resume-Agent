@@ -2,10 +2,7 @@ import os
 import time
 import tempfile
 import json
-import chromadb
-from chromadb.utils import embedding_functions
-import pypdf
-from huggingface_hub import InferenceClient
+# chromadb and others will be imported lazily
 from .config import Config
 import torch
 
@@ -19,8 +16,13 @@ hf_api_key = Config.HUGGINGFACE_API_KEY
 client = None
 
 if hf_api_key:
-    print(f"[OK] Hugging Face API key loaded (length: {len(hf_api_key)})")
-    client = InferenceClient(api_key=hf_api_key)
+    try:
+        from huggingface_hub import InferenceClient
+        print(f"[OK] Hugging Face API key loaded (length: {len(hf_api_key)})")
+        client = InferenceClient(api_key=hf_api_key)
+    except ImportError:
+        print("[X] huggingface_hub not installed")
+        client = None
 else:
     print("[X] Hugging Face API key not found in environment")
 
@@ -31,6 +33,7 @@ _embedding_function = None
 def _initialize_embedding_function():
     """Initialize the embedding function with proper error handling."""
     from sentence_transformers import SentenceTransformer
+    from chromadb.utils import embedding_functions
     
     try:
         print("Loading SentenceTransformer model...")
@@ -66,6 +69,7 @@ def get_chroma_collection():
     Uses sentence transformer embeddings (free, local).
     """
     global _chroma_client, _embedding_function
+    import chromadb
     
     if _chroma_client is None:
         _chroma_client = chromadb.PersistentClient(path=Config.CHROMA_DB_DIR)
@@ -98,10 +102,10 @@ def get_chroma_collection():
         else:
             raise
 
-def process_pdf(file_path):
     """
     Extract text from a PDF file.
     """
+    import pypdf
     try:
         reader = pypdf.PdfReader(file_path)
         full_text = ""

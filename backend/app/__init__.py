@@ -5,7 +5,9 @@ from .services import ingest_resumes_from_disk
 import os
 
 def create_app():
+    print("[INFO] Starting create_app...")
     app = Flask(__name__, static_folder='static', static_url_path='')
+    print("[INFO] Flask app instance created")
     app.config.from_object(Config)
     
     # Configure CORS for production

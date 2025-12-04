@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+// Use relative URL in development to leverage Vite proxy, absolute URL in production
+export const API_URL = import.meta.env.DEV ? "/api" : "http://127.0.0.1:8000/api";
 
 export const uploadResumes = async (files) => {
   const formData = new FormData();
@@ -45,3 +46,5 @@ export const getResumeContent = async (resumeId) => {
 export const getResumePdfUrl = (resumeId) => {
     return `${API_URL}/resumes/${resumeId}/pdf`;
 };
+
+

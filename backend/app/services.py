@@ -7,28 +7,96 @@ from chromadb.utils import embedding_functions
 import pypdf
 from huggingface_hub import InferenceClient
 from .config import Config
+import torch
+
+# Workaround for PyTorch meta tensor issue
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+# Disable meta device to prevent tensor issues
+os.environ['TRANSFORMERS_OFFLINE'] = '0'
 
 # Initialize API client
 hf_api_key = Config.HUGGINGFACE_API_KEY
 client = None
 
 if hf_api_key:
-    print(f"✓ Hugging Face API key loaded (length: {len(hf_api_key)})")
+    print(f"[OK] Hugging Face API key loaded (length: {len(hf_api_key)})")
     client = InferenceClient(api_key=hf_api_key)
 else:
-    print("✗ Hugging Face API key not found in environment")
+    print("[X] Hugging Face API key not found in environment")
+
+# Global ChromaDB client and embedding function
+_chroma_client = None
+_embedding_function = None
+
+def _initialize_embedding_function():
+    """Initialize the embedding function with proper error handling."""
+    from sentence_transformers import SentenceTransformer
+    
+    try:
+        print("Loading SentenceTransformer model...")
+        # Load model directly with SentenceTransformer, avoiding meta tensor issues
+        model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        
+        # Create a wrapper class for ChromaDB
+        class CustomEmbeddingFunction:
+            def __init__(self, model):
+                self.model = model
+            
+            def name(self):
+                """Return model name - required by ChromaDB."""
+                return "all-MiniLM-L6-v2"
+            
+            def __call__(self, input):
+                if isinstance(input, str):
+                    input = [input]
+                embeddings = self.model.encode(input, convert_to_numpy=True)
+                return embeddings.tolist()
+        
+        print("SentenceTransformer model loaded successfully")
+        return CustomEmbeddingFunction(model)
+    except Exception as e:
+        print(f"Error initializing custom embedding: {e}")
+        print("Falling back to default ChromaDB embedding function...")
+        # Fallback to ChromaDB's built-in function
+        return embedding_functions.DefaultEmbeddingFunction()
 
 def get_chroma_collection():
     """
     Get or create the ChromaDB collection.
-    Uses default sentence transformer embeddings (free, no API key needed).
+    Uses sentence transformer embeddings (free, local).
     """
-    chroma_client = chromadb.PersistentClient(path=Config.CHROMA_DB_DIR)
-    # Use default sentence transformer (all-MiniLM-L6-v2) - free and local
-    sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
-    )
-    return chroma_client.get_or_create_collection(name="resumes", embedding_function=sentence_transformer_ef)
+    global _chroma_client, _embedding_function
+    
+    if _chroma_client is None:
+        _chroma_client = chromadb.PersistentClient(path=Config.CHROMA_DB_DIR)
+    
+    # Try to get existing collection first (without providing embedding function)
+    try:
+        existing_collection = _chroma_client.get_collection(name="resumes")
+        print("Using existing ChromaDB collection")
+        return existing_collection
+    except ValueError as e:
+        # Collection doesn't exist, create it with our embedding function
+        if _embedding_function is None:
+            _embedding_function = _initialize_embedding_function()
+        
+        print("Creating new ChromaDB collection with embedding function")
+        return _chroma_client.create_collection(name="resumes", embedding_function=_embedding_function)
+    except Exception as e:
+        # If there's an embedding function conflict, delete and recreate
+        if "embedding function already exists" in str(e).lower():
+            print("Embedding function conflict detected - deleting and recreating collection")
+            try:
+                _chroma_client.delete_collection(name="resumes")
+            except:
+                pass
+            
+            if _embedding_function is None:
+                _embedding_function = _initialize_embedding_function()
+            
+            return _chroma_client.create_collection(name="resumes", embedding_function=_embedding_function)
+        else:
+            raise
 
 def process_pdf(file_path):
     """
@@ -57,8 +125,10 @@ def ingest_resumes_from_disk():
         yield {"status": "error", "message": f"Error getting collection: {e}"}
         return
 
-    if not os.path.exists(Config.RESUMES_DIR):
-        yield {"status": "error", "message": f"Resumes directory not found: {Config.RESUMES_DIR}"}
+    resumes_dir = Config.get_resumes_dir()
+    
+    if not os.path.exists(resumes_dir):
+        yield {"status": "error", "message": f"Resumes directory not found: {resumes_dir}"}
         return
 
     # Get existing IDs to avoid re-processing
@@ -66,7 +136,7 @@ def ingest_resumes_from_disk():
     
     files_to_process = []
     already_ingested = []
-    for filename in os.listdir(Config.RESUMES_DIR):
+    for filename in os.listdir(resumes_dir):
         if filename.lower().endswith(".pdf"):
             if filename not in existing_ids:
                 files_to_process.append(filename)
@@ -84,17 +154,29 @@ def ingest_resumes_from_disk():
     processed_count = 0
     
     for i, filename in enumerate(files_to_process):
-        file_path = os.path.join(Config.RESUMES_DIR, filename)
+        file_path = os.path.join(resumes_dir, filename)
         
+        # Initial processing update
         yield {
             "status": "processing", 
             "file": filename, 
             "current": i + 1, 
             "total": total_files, 
-            "percent": int(((i) / total_files) * 100)
+            "percent": int(((i) / total_files) * 100),
+            "stage": "reading"
         }
         
         full_text = process_pdf(file_path)
+        
+        # After reading PDF, before adding to DB
+        yield {
+            "status": "processing", 
+            "file": filename, 
+            "current": i + 1, 
+            "total": total_files, 
+            "percent": int(((i + 0.5) / total_files) * 100),
+            "stage": "embedding"
+        }
         
         if full_text and full_text.strip():
             try:
@@ -148,7 +230,7 @@ Candidate Resume:
 Respond with this exact JSON format (nothing else):
 {{
     "match_percentage": 75,
-    "summary": "One sentence candidate summary",
+    "summary": "two sentence candidate summary",
     "pros": ["strength 1", "strength 2"],
     "cons": ["gap 1", "gap 2"],
     "evidence": ["quote from resume"]
@@ -156,7 +238,7 @@ Respond with this exact JSON format (nothing else):
 [/INST]"""
     
     try:
-        print(f"🔄 Calling Hugging Face API with model: mistralai/Mistral-7B-Instruct-v0.2")
+        print(f"[INFO] Calling Hugging Face API with model: mistralai/Mistral-7B-Instruct-v0.2")
         
         completion = client.chat.completions.create(
             model="mistralai/Mistral-7B-Instruct-v0.2",
@@ -171,7 +253,7 @@ Respond with this exact JSON format (nothing else):
         )
         
         text = completion.choices[0].message.content.strip()
-        print(f"📝 Raw API Response ({len(text)} chars):")
+        print(f"[INFO] Raw API Response ({len(text)} chars):")
         print(f"   {text[:300]}...")
         
         # Clean up markdown blocks
@@ -182,18 +264,18 @@ Respond with this exact JSON format (nothing else):
         json_match = re.search(r'\{.*\}', text, re.DOTALL)
         
         if not json_match:
-            print(f"⚠️ No JSON structure found in response")
+            print(f"[WARN] No JSON structure found in response")
             print(f"   Full response: {text}")
             raise ValueError("No JSON structure in response")
         
         json_text = json_match.group(0)
-        print(f"🔍 Extracted JSON: {json_text[:200]}...")
+        print(f"[INFO] Extracted JSON: {json_text[:200]}...")
         
         # Try to parse
         try:
             parsed = json.loads(json_text)
         except json.JSONDecodeError as e:
-            print(f"⚠️ Initial JSON parse failed: {e}")
+            print(f"[WARN] Initial JSON parse failed: {e}")
             # Try to fix common issues
             json_text = json_text.replace("'", '"')
             json_text = json_text.replace('\n', ' ')
@@ -208,11 +290,11 @@ Respond with this exact JSON format (nothing else):
             "evidence": [str(e)[:150] for e in list(parsed.get("evidence", []))[:2]]
         }
         
-        print(f"✅ Analysis complete - Match: {result['match_percentage']}%")
+        print(f"[OK] Analysis complete - Match: {result['match_percentage']}%")
         return result
         
     except json.JSONDecodeError as e:
-        print(f"❌ JSON Parse Error: {e}")
+        print(f"[ERROR] JSON Parse Error: {e}")
         if 'json_text' in locals():
             print(f"   Failed to parse: {json_text[:200]}")
         if 'text' in locals():
@@ -225,7 +307,7 @@ Respond with this exact JSON format (nothing else):
             "evidence": []
         }
     except Exception as e:
-        print(f"❌ Hugging Face API Error: {type(e).__name__}: {str(e)}")
+        print(f"[ERROR] Hugging Face API Error: {type(e).__name__}: {str(e)}")
         import traceback
         traceback.print_exc()
         return {

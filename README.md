@@ -104,14 +104,24 @@ Deploy Nebula to Railway with ease:
 1. **Fork this repository** to your GitHub account
 2. **Create a new project** on [Railway](https://railway.app)
 3. **Connect your GitHub repository**
-4. **Add environment variables** in Railway dashboard:
+4. **Add environment variable** in Railway dashboard:
    ```
    HUGGINGFACE_API_KEY=your_api_key_here
-   FLASK_ENV=production
    ```
-5. **Deploy** - Railway will automatically detect the nixpacks.toml configuration
+5. **Deploy** - Railway will automatically build using the Dockerfile
 
-The app will be available at your Railway-provided URL
+The app will be available at your Railway-provided URL.
+
+### 🐋 Docker Deployment
+
+Run locally with Docker:
+
+```bash
+docker build -t nebula-resume .
+docker run -p 8000:8000 -e HUGGINGFACE_API_KEY=your_key nebula-resume
+```
+
+Visit `http://localhost:8000` to access the app
 
 ---
 

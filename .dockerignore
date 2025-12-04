@@ -13,7 +13,6 @@ ENV/
 node_modules/
 npm-debug.log
 yarn-error.log
-dist/
 .cache/
 
 # IDEs
@@ -30,14 +29,15 @@ Thumbs.db
 # Git
 .git/
 .gitignore
+.github/
 
 # Environment
+.env
 .env.local
 .env.*.local
 
 # Data (will be mounted as volume)
-data/resumes/*
-data/chroma_db/*
+data/
 
 # Logs
 *.log
@@ -50,3 +50,13 @@ htmlcov/
 # Build
 build/
 *.egg-info/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Docker files
+docker-compose.yml
+docker-compose.prod.yml
+Dockerfile.dev

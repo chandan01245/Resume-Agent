@@ -5,7 +5,6 @@ import {
     Eye,
     FileText,
     Filter,
-    Folder,
     Home,
     RefreshCw,
     Search,
@@ -18,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { analyzeResumes, getResumePdfUrl, getResumes, uploadResumes, uploadFolder } from './api';
+import { analyzeResumes, getResumePdfUrl, getResumes, uploadFolder, uploadResumes, API_URL } from './api';
 
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -33,6 +32,86 @@ const JOB_TITLES = [
 ];
 
 // --- Components ---
+
+const NavItem = ({ icon, label, active, onClick }) => {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+        active
+          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+          : 'text-slate-600 hover:bg-slate-100'
+      }`}
+    >
+      {icon}
+      <span className="font-medium">{label}</span>
+    </button>
+  );
+};
+
+const LoadingDialog = ({ isOpen, message }) => {
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden p-8 flex flex-col items-center"
+        >
+          <div className="relative w-20 h-20 mb-6">
+             <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+             <div className="absolute inset-0 border-4 border-emerald-500 rounded-full border-t-transparent animate-spin"></div>
+             <div className="absolute inset-0 flex items-center justify-center">
+                <Sparkles size={24} className="text-emerald-500 animate-pulse" />
+             </div>
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Processing</h3>
+          <p className="text-slate-600 text-center font-medium animate-pulse">{message}</p>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
+const Dialog = ({ isOpen, onClose, title, message, type = 'info' }) => {
+  if (!isOpen) return null;
+
+  const icons = {
+    success: <CheckCircle size={48} className="text-emerald-500" />,
+    error: <AlertCircle size={48} className="text-red-500" />,
+    info: <AlertCircle size={48} className="text-blue-500" />
+  };
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+        >
+          <div className="p-6 flex flex-col items-center text-center">
+            <div className="mb-4">
+              {icons[type]}
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">{title}</h3>
+            <p className="text-slate-600 mb-6">{message}</p>
+            <button
+              onClick={onClose}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-lg font-semibold transition-colors w-full"
+            >
+              OK
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
 
 const Notification = ({ message, type, onClose }) => {
   useEffect(() => {
@@ -60,6 +139,8 @@ const Notification = ({ message, type, onClose }) => {
     </motion.div>
   );
 };
+
+
 
 const useCountUp = (end, duration = 1500) => {
   const [count, setCount] = useState(0);
@@ -144,17 +225,6 @@ const CircularProgress = ({ percentage, color }) => {
     </div>
   );
 };
-
-const NavItem = ({ icon, label, active, onClick, badge }) => (
-  <div 
-    onClick={onClick}
-    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${active ? 'bg-emerald-50 text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
-  >
-     <div className={active ? 'text-emerald-600' : 'text-slate-400'}>{icon}</div>
-     <span className="hidden lg:block text-sm">{label}</span>
-     {badge && <span className="hidden lg:block ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{badge}</span>}
-  </div>
-);
 
 const ResumeViewDialog = ({ resume, onClose }) => {
   const [numPages, setNumPages] = useState(null);
@@ -261,36 +331,75 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [results, setResults] = useState([]);
   const [resumesList, setResumesList] = useState([]);
+  const [loadingResumes, setLoadingResumes] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [showJobInput, setShowJobInput] = useState(true);
   const [notification, setNotification] = useState(null);
   const [ingestProgress, setIngestProgress] = useState(null);
   const [viewingResume, setViewingResume] = useState(null);
+
   const fileInputRef = useRef(null);
-  const folderInputRef = useRef(null);
-  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [dialog, setDialog] = useState(null);
+  const [loadingDialog, setLoadingDialog] = useState(null); // { message: string } | null
 
   useEffect(() => {
+    // Don't auto-load on mount - wait for user to sync files
     // handleIngest();
   }, []);
 
   useEffect(() => {
+    console.log("Active tab changed to:", activeTab);
     if (activeTab === 'resumes') {
+        console.log("Fetching resumes for resumes tab...");
         fetchResumes();
     }
   }, [activeTab]);
+
+
 
   const showNotification = (message, type = 'info') => {
     setNotification({ message, type });
   };
 
+  const showDialog = (title, message, type = 'info') => {
+    setDialog({ title, message, type });
+  };
+
+  const showLoading = (message) => {
+      setLoadingDialog({ message });
+  };
+
+  const hideLoading = () => {
+      setLoadingDialog(null);
+  };
+
   const fetchResumes = async () => {
+      setLoadingResumes(true);
       try {
+          console.log("Fetching resumes from API...");
           const response = await getResumes();
-          setResumesList(response.data.resumes);
+          console.log("Resumes response:", response.data);
+          
+          if (response.data && response.data.resumes) {
+              setResumesList(response.data.resumes);
+              console.log(`✓ Loaded ${response.data.resumes.length} resumes successfully`);
+          } else {
+              console.warn("No resumes data in response");
+              setResumesList([]);
+          }
       } catch (error) {
-          console.error("Failed to fetch resumes", error);
-          showNotification("Failed to load resumes", "error");
+          console.error("Failed to fetch resumes:", error);
+          console.error("Error details:", {
+              message: error.message,
+              response: error.response?.data,
+              status: error.response?.status
+          });
+          showDialog("Failed to Load Resumes", 
+              `Could not load resumes from database.\n\nError: ${error.message}`, 
+              "error");
+          setResumesList([]);
+      } finally {
+          setLoadingResumes(false);
       }
   };
 
@@ -301,12 +410,33 @@ function App() {
   const handleIngest = async () => {
     setIngesting(true);
     setIngestProgress({ percent: 0, message: "Starting..." });
+    // Don't show loading dialog - the progress bar will show status
     
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const response = await fetch(`${API_URL}/ingest`, {
+      // Use the API helper to ensure consistent URL handling
+      const ingestUrl = `${API_URL}/ingest`;
+      console.log(`Calling ingest API: ${ingestUrl}`);
+      
+      const response = await fetch(ingestUrl, {
         method: 'POST',
       });
+
+      console.log(`Ingest response status: ${response.status}`);
+      
+      // Check if response is OK
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Ingest failed with status ${response.status}:`, errorText);
+        throw new Error(`Server returned ${response.status}: ${errorText.substring(0, 100)}`);
+      }
+      
+      // Check content type
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const bodyText = await response.text();
+        console.error('Received non-JSON response:', bodyText.substring(0, 200));
+        throw new Error('Server returned HTML instead of JSON. Backend may be misconfigured.');
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -325,9 +455,10 @@ function App() {
             try {
                 const data = JSON.parse(line);
                 if (data.status === 'processing') {
+                    const msg = `Processing ${data.file} (${data.current}/${data.total})`;
                     setIngestProgress({ 
                         percent: data.percent, 
-                        message: `Processing ${data.file} (${data.current}/${data.total})` 
+                        message: msg
                     });
                 } else if (data.status === 'complete') {
                     showNotification(data.message, "success");
@@ -335,9 +466,9 @@ function App() {
                 } else if (data.status === 'error') {
                     const errorMsg = data.message;
                     if (errorMsg.includes('quota') || errorMsg.includes('429')) {
-                        showNotification("Google API quota exceeded. Please wait 24 hours or upgrade your plan.", "error");
+                        showDialog("API Quota Exceeded", "Google API quota exceeded. Please wait 24 hours or upgrade your plan.", "error");
                     } else {
-                        showNotification(errorMsg.substring(0, 100), "error");
+                        showDialog("Processing Error", errorMsg, "error");
                     }
                 }
             } catch (e) {
@@ -347,10 +478,21 @@ function App() {
       }
     } catch (error) {
       console.error("Ingest failed", error);
-      showNotification("Failed to sync resumes", "error");
+      let errorMsg = "Failed to sync resumes from local folder.";
+      
+      if (error.message) {
+        errorMsg += `\n\nError: ${error.message}`;
+      }
+      
+      if (error.response) {
+        errorMsg += `\n\nPlease ensure the backend server is running on port 8000.`;
+      }
+      
+      showDialog("Sync Failed", errorMsg, "error");
     } finally {
       setIngesting(false);
       setIngestProgress(null);
+      // Don't hide loading dialog since we don't show it
     }
   };
 
@@ -358,61 +500,127 @@ function App() {
       fileInputRef.current.click();
   };
 
-  const handleFolderSelect = () => {
-      folderInputRef.current.click();
-  };
+
 
   const handleFileChange = async (event) => {
       const files = event.target.files;
       if (!files || files.length === 0) return;
 
+      const fileCount = files.length;
       setUploading(true);
+      // Don't show loading dialog - progress will be shown during ingestion
+      
       try {
+          console.log(`Uploading ${fileCount} individual resume files...`);
           const response = await uploadResumes(files);
+          
           showNotification(response.data.message, "success");
+          setUploading(false);
+          
+          // Now trigger ingestion (progress bar will show)
+          await handleIngest();
+          
           // Clear input
           event.target.value = null;
       } catch (error) {
           console.error("Upload failed", error);
-          showNotification("Failed to upload resumes", "error");
-      } finally {
+          const errorMsg = error.response?.data?.error || error.message || "Failed to upload resumes";
+          showDialog("Upload Failed", errorMsg, "error");
           setUploading(false);
+          setIngesting(false);
+          setIngestProgress(null);
       }
   };
 
-  const handleFolderChange = async (event) => {
-      const files = event.target.files;
-      if (!files || files.length === 0) {
-          setSelectedFolder(null);
-          return;
-      }
 
-      setSelectedFolder({ name: `${files.length} files selected`, files });
-      showNotification(`Selected ${files.length} files from folder`, "info");
+
+  const handleSetFolderPath = async (newPath) => {
+      try {
+          console.log("[UI] Setting folder path:", newPath);
+          showLoading("Setting folder path...");
+          
+          const response = await setFolderPath(newPath);
+          console.log("[UI] Got response:", response);
+          
+          if (!response) {
+              throw new Error("No response from server");
+          }
+          
+          // Handle response - axios returns data in response.data
+          const data = response.data;
+          console.log("[UI] Response data:", data);
+          
+          if (!data) {
+              throw new Error("Invalid response format");
+          }
+          
+          if (data.error) {
+              throw new Error(data.error);
+          }
+          
+          if (data.path) {
+              setFolderPath(data.path);
+              showNotification(`✓ Folder path updated! Found ${data.pdf_count || 0} PDF files.`, "success");
+              setShowFolderPathDialog(false);
+          } else {
+              throw new Error("Path not returned from server");
+          }
+          
+          hideLoading();
+      } catch (error) {
+          console.error("[UI] Failed to set folder path:", error);
+          console.error("[UI] Error details:", {
+              message: error.message,
+              response: error.response,
+              request: error.request,
+              config: error.config
+          });
+          
+          let errorMsg = "Failed to set folder path";
+          
+          if (error.response?.data?.error) {
+              errorMsg = error.response.data.error;
+          } else if (error.response?.status) {
+              errorMsg = `Server error (${error.response.status}): ${error.response.statusText}`;
+          } else if (error.request) {
+              errorMsg = "No response from server. Check if backend is running.";
+          } else if (error.message) {
+              errorMsg = error.message;
+          }
+          
+          showDialog("Error", errorMsg, "error");
+          hideLoading();
+      }
   };
 
   const handleSyncFolder = async () => {
-      if (!selectedFolder || !selectedFolder.files) {
-          showNotification("Please select a folder first", "error");
-          return;
-      }
-
+      console.log("=== handleSyncFolder called ===");
+      console.log("Note: This will ONLY ingest resumes from the configured folder, NOT upload new files");
+      
       setIngesting(true);
-      setIngestProgress({ percent: 0, message: "Starting..." });
+      // Don't show loading dialog - the progress bar will show status
       
       try {
-          const response = await uploadFolder(selectedFolder.files);
-          showNotification(response.data.message, "success");
-          
-          // Now ingest the uploaded files
+          // Just trigger ingestion of files already in the configured folder
+          console.log(`Starting ingestion of resumes from default folder`);
           await handleIngest();
+          console.log("Ingestion complete");
           
-          // Clear selection
-          setSelectedFolder(null);
-          folderInputRef.current.value = null;
       } catch (error) {
-          console.error("Folder sync failed", error);
-          showNotification("Failed to sync folder", "error");
+          console.error("Folder sync failed:", error);
+          
+          let errorMsg = "Failed to sync folder.";
+          if (error.response?.data?.error) {
+              errorMsg = error.response.data.error;
+          } else if (error.message) {
+              errorMsg += ` ${error.message}`;
+          }
+          
+          if (error.response?.status === 405) {
+              errorMsg = "The sync endpoint is not properly configured. Please check the backend server.";
+          }
+          
+          showDialog("Sync Failed", errorMsg, "error");
           setIngesting(false);
           setIngestProgress(null);
       }
@@ -420,11 +628,12 @@ function App() {
 
   const handleAnalyze = async () => {
     if (!jobDescription) {
-      showNotification("Please enter or select a job description.", "error");
+      showDialog("Missing Job Description", "Please enter or select a job description before analyzing.", "error");
       return;
     }
     
     setAnalyzing(true);
+    showLoading("Analyzing resumes against job description...");
     try {
       const response = await analyzeResumes(jobDescription);
       setResults(response.data.results);
@@ -432,9 +641,11 @@ function App() {
       showNotification("Analysis complete!", "success");
     } catch (error) {
       console.error("Analysis failed", error);
-      showNotification("Analysis failed. Please try again.", "error");
+      const errorMsg = error.response?.data?.error || error.message || "Analysis failed. Please try again.";
+      showDialog("Analysis Failed", errorMsg, "error");
     } finally {
       setAnalyzing(false);
+      hideLoading();
     }
   };
 
@@ -460,6 +671,25 @@ function App() {
           />
         )}
       </AnimatePresence>
+
+      {loadingDialog && (
+          <LoadingDialog 
+            isOpen={true} 
+            message={loadingDialog.message} 
+          />
+      )}
+
+
+      
+      {dialog && (
+        <Dialog
+          isOpen={true}
+          title={dialog.title}
+          message={dialog.message}
+          type={dialog.type}
+          onClose={() => setDialog(null)}
+        />
+      )}
 
       <AnimatePresence>
         {viewingResume && (
@@ -518,6 +748,7 @@ function App() {
               <h1 className="text-xl font-bold text-slate-800">
                   {activeTab === 'dashboard' ? 'Candidate Ranking' : 'Resume Database'}
               </h1>
+              {/* Hidden file inputs */}
               <input 
                   type="file" 
                   multiple 
@@ -526,39 +757,26 @@ function App() {
                   ref={fileInputRef} 
                   onChange={handleFileChange}
               />
-              <input 
-                  type="file" 
-                  multiple 
-                  accept=".pdf" 
-                  webkitdirectory=""
-                  directory=""
-                  className="hidden" 
-                  ref={folderInputRef} 
-                  onChange={handleFolderChange}
-              />
+              
+              {/* Upload Resume Button */}
               <button 
                   onClick={handleUploadClick}
-                  disabled={uploading}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm"
+                  disabled={uploading || ingesting}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                   <Upload size={16} />
-                  {uploading ? "Uploading..." : "Upload Resumes"}
+                  Upload Resumes
               </button>
-              <button 
-                  onClick={handleFolderSelect}
-                  disabled={uploading || ingesting}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm"
-              >
-                  <Folder size={16} />
-                  {selectedFolder ? selectedFolder.name : "Select Folder"}
-              </button>
+
+              {/* Sync Button */}
               <button 
                   onClick={handleSyncFolder}
-                  disabled={!selectedFolder || ingesting}
+                  disabled={uploading || ingesting}
                   className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Sync and process resumes from data/resumes folder"
               >
                   <RefreshCw size={16} className={ingesting ? "animate-spin" : ""} />
-                  {ingesting ? "Syncing..." : "Sync Folder"}
+                  {ingesting ? "Syncing..." : "Sync"}
               </button>
            </div>
            <div className="flex items-center gap-3">
@@ -582,6 +800,56 @@ function App() {
         <div className="flex-1 overflow-y-auto p-6 lg:p-8 scroll-smooth">
           <div className="max-w-5xl mx-auto">
             
+            {/* Large Progress Display During Ingestion */}
+            <AnimatePresence>
+              {ingesting && ingestProgress && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="mb-6 bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-2xl p-8 shadow-xl"
+                >
+                  <div className="text-center">
+                    {/* Large Circular Progress */}
+                    <div className="flex justify-center mb-6">
+                      <CircularProgress 
+                        percentage={ingestProgress.percent} 
+                        color="rgb(16, 185, 129)" 
+                      />
+                    </div>
+                    
+                    {/* Status Message */}
+                    <h3 className="text-2xl font-bold text-slate-800 mb-2">
+                      Processing Resumes
+                    </h3>
+                    <p className="text-lg text-slate-600 mb-4">
+                      {ingestProgress.message}
+                    </p>
+                    
+                    {/* Linear Progress Bar */}
+                    <div className="max-w-md mx-auto">
+                      <div className="w-full h-4 bg-slate-200 rounded-full overflow-hidden shadow-inner mb-2">
+                        <motion.div 
+                          className="h-full bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-500 relative"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${ingestProgress.percent}%` }}
+                          transition={{ duration: 0.5, ease: "easeOut" }}
+                        >
+                          <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
+                        </motion.div>
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        Please wait while we process your resumes...
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            
+
+
             {activeTab === 'dashboard' ? (
                 <>
                 {/* Job Selection / Input Area */}
@@ -763,7 +1031,7 @@ function App() {
                             <Search className="w-8 h-8 text-slate-400" />
                         </div>
                         <h3 className="text-slate-800 font-bold text-lg">No candidates found</h3>
-                        <p className="text-slate-500 mt-2">Upload resumes or sync local folder to get started.</p>
+                        <p className="text-slate-500 mt-2">Upload resumes or process files from your data/resumes folder to get started.</p>
                     </div>
                 )}
                 </div>
@@ -784,7 +1052,12 @@ function App() {
                         </div>
                     </div>
                     <div className="divide-y divide-slate-100">
-                        {resumesList.length > 0 ? (
+                        {loadingResumes ? (
+                            <div className="p-8 text-center">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+                                <p className="text-slate-500">Loading resumes...</p>
+                            </div>
+                        ) : resumesList.length > 0 ? (
                             resumesList.map((resume) => (
                                 <div key={resume.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center gap-4">
                                     <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
@@ -804,8 +1077,14 @@ function App() {
                                 </div>
                             ))
                         ) : (
-                            <div className="p-8 text-center text-slate-500">
-                                No resumes found in the database.
+                            <div className="p-12 text-center">
+                                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <FileText className="w-8 h-8 text-slate-400" />
+                                </div>
+                                <h3 className="text-slate-800 font-bold text-lg mb-2">No Resumes Yet</h3>
+                                <p className="text-slate-500 mb-4">
+                                    Upload individual resumes using the "Upload Resumes" button above, or place PDFs in your <code className="bg-slate-100 px-1 rounded text-xs">data/resumes/</code> folder and click "Sync" to ingest them.
+                                </p>
                             </div>
                         )}
                     </div>

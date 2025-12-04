@@ -8,6 +8,8 @@ from .config import Config
 
 main_bp = Blueprint('main', __name__)
 
+
+
 @main_bp.route('/ingest', methods=['POST'])
 def trigger_ingest():
     """
@@ -62,24 +64,89 @@ def list_resumes():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-@main_bp.route('/resumes/<resume_id>', methods=['GET'])
-def get_resume_content(resume_id):
+@main_bp.route('/resumes/<resume_id>', methods=['GET', 'DELETE'])
+def manage_resume(resume_id):
     """
-    Get the full content of a specific resume by ID.
+    Get or delete a specific resume by ID.
     """
+    if request.method == 'GET':
+        try:
+            collection = get_chroma_collection()
+            result = collection.get(ids=[resume_id], include=['documents', 'metadatas'])
+            
+            if not result['ids']:
+                return jsonify({"error": "Resume not found"}), 404
+            
+            return jsonify({
+                "id": result['ids'][0],
+                "filename": result['metadatas'][0].get("source", resume_id),
+                "content": result['documents'][0]
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    elif request.method == 'DELETE':
+        try:
+            collection = get_chroma_collection()
+            
+            # Get the filename before deleting from DB (just for response)
+            result = collection.get(ids=[resume_id], include=['metadatas'])
+            
+            if not result['ids']:
+                return jsonify({"error": "Resume not found"}), 404
+            
+            filename = result['metadatas'][0].get("source", resume_id)
+            
+            # Delete from ChromaDB
+            collection.delete(ids=[resume_id])
+            
+            # NOTE: User requested to NOT delete the actual file from disk
+            # file_path = os.path.join(Config.get_resumes_dir(), filename)
+            # if os.path.exists(file_path):
+            #     os.remove(file_path)
+            
+            return jsonify({
+                "message": f"Resume '{filename}' deleted from database",
+                "id": resume_id,
+                "filename": filename
+            })
+        except Exception as e:
+            print(f"Error deleting resume: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": str(e)}), 500
+
+@main_bp.route('/resumes/delete', methods=['POST'])
+def bulk_delete_resumes():
+    """
+    Delete multiple resumes by ID.
+    """
+    data = request.get_json()
+    if not data or 'ids' not in data:
+        return jsonify({"error": "List of IDs is required"}), 400
+        
+    ids_to_delete = data['ids']
+    if not isinstance(ids_to_delete, list):
+        return jsonify({"error": "IDs must be a list"}), 400
+        
+    if not ids_to_delete:
+        return jsonify({"message": "No IDs provided", "count": 0, "ids": []})
+        
     try:
         collection = get_chroma_collection()
-        result = collection.get(ids=[resume_id], include=['documents', 'metadatas'])
         
-        if not result['ids']:
-            return jsonify({"error": "Resume not found"}), 404
+        # Delete from ChromaDB
+        collection.delete(ids=ids_to_delete)
+        
+        # NOTE: Not deleting files from disk as requested
         
         return jsonify({
-            "id": result['ids'][0],
-            "filename": result['metadatas'][0].get("source", resume_id),
-            "content": result['documents'][0]
+            "message": f"Successfully deleted {len(ids_to_delete)} resumes",
+            "count": len(ids_to_delete),
+            "ids": ids_to_delete
         })
     except Exception as e:
+        print(f"Error in bulk delete: {e}")
         return jsonify({"error": str(e)}), 500
 
 @main_bp.route('/resumes/<resume_id>/pdf', methods=['GET'])

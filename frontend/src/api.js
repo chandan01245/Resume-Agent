@@ -47,4 +47,11 @@ export const getResumePdfUrl = (resumeId) => {
     return `${API_URL}/resumes/${resumeId}/pdf`;
 };
 
+export const deleteResume = async (resumeId) => {
+    return axios.delete(`${API_URL}/resumes/${resumeId}`);
+};
+
+export const deleteResumes = async (resumeIds) => {
+    return axios.post(`${API_URL}/resumes/delete`, { ids: resumeIds });
+};
 

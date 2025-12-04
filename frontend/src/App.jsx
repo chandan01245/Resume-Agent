@@ -9,6 +9,7 @@ import {
     RefreshCw,
     Search,
     Sparkles,
+    Trash2,
     Upload,
     User,
     X
@@ -17,7 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { analyzeResumes, getResumePdfUrl, getResumes, uploadFolder, uploadResumes, API_URL } from './api';
+import { analyzeResumes, API_URL, deleteResume, deleteResumes, getResumePdfUrl, getResumes, uploadResumes } from './api';
 
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -341,6 +342,7 @@ function App() {
   const fileInputRef = useRef(null);
   const [dialog, setDialog] = useState(null);
   const [loadingDialog, setLoadingDialog] = useState(null); // { message: string } | null
+  const [selectedResumes, setSelectedResumes] = useState(new Set());
 
   useEffect(() => {
     // Don't auto-load on mount - wait for user to sync files
@@ -405,6 +407,68 @@ function App() {
 
   const handleViewResume = async (resume) => {
       setViewingResume(resume);
+  };
+
+  const handleDeleteResume = async (resume) => {
+      if (!confirm(`Are you sure you want to delete "${resume.filename}"? This will remove it from the database and delete the PDF file.`)) {
+          return;
+      }
+
+      try {
+          showLoading("Deleting resume...");
+          await deleteResume(resume.id);
+          showNotification(`✓ "${resume.filename}" deleted successfully!`, "success");
+          
+          // Refresh the resumes list
+          await fetchResumes();
+      } catch (error) {
+          console.error("Failed to delete resume:", error);
+          const errorMsg = error.response?.data?.error || error.message || "Failed to delete resume";
+          showDialog("Delete Failed", errorMsg, "error");
+      } finally {
+          hideLoading();
+      }
+  };
+
+  const handleBulkDelete = async () => {
+      if (selectedResumes.size === 0) return;
+
+      if (!confirm(`Are you sure you want to delete ${selectedResumes.size} resumes? They will be removed from the database but files will remain on disk.`)) {
+          return;
+      }
+
+      try {
+          showLoading(`Deleting ${selectedResumes.size} resumes...`);
+          await deleteResumes(Array.from(selectedResumes));
+          showNotification(`✓ ${selectedResumes.size} resumes deleted successfully!`, "success");
+          
+          setSelectedResumes(new Set());
+          await fetchResumes();
+      } catch (error) {
+          console.error("Failed to delete resumes:", error);
+          const errorMsg = error.response?.data?.error || error.message || "Failed to delete resumes";
+          showDialog("Delete Failed", errorMsg, "error");
+      } finally {
+          hideLoading();
+      }
+  };
+
+  const toggleResumeSelection = (id) => {
+      const newSelected = new Set(selectedResumes);
+      if (newSelected.has(id)) {
+          newSelected.delete(id);
+      } else {
+          newSelected.add(id);
+      }
+      setSelectedResumes(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+      if (selectedResumes.size === resumesList.length) {
+          setSelectedResumes(new Set());
+      } else {
+          setSelectedResumes(new Set(resumesList.map(r => r.id)));
+      }
   };
 
   const handleIngest = async () => {
@@ -850,6 +914,8 @@ function App() {
             
 
 
+
+
             {activeTab === 'dashboard' ? (
                 <>
                 {/* Job Selection / Input Area */}
@@ -1039,7 +1105,18 @@ function App() {
             ) : (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-slate-800">All Resumes</h2>
+                        <div className="flex items-center gap-4">
+                            <h2 className="text-lg font-bold text-slate-800">All Resumes</h2>
+                            {selectedResumes.size > 0 && (
+                                <button 
+                                    onClick={handleBulkDelete}
+                                    className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors animate-in fade-in slide-in-from-left-2"
+                                >
+                                    <Trash2 size={14} />
+                                    Delete Selected ({selectedResumes.size})
+                                </button>
+                            )}
+                        </div>
                         <div className="flex items-center gap-3">
                             <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{resumesList.length} files</span>
                             <button 
@@ -1051,6 +1128,22 @@ function App() {
                             </button>
                         </div>
                     </div>
+                    
+                    {/* Header Row for Select All */}
+                    {resumesList.length > 0 && (
+                        <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-4">
+                            <input 
+                                type="checkbox"
+                                checked={resumesList.length > 0 && selectedResumes.size === resumesList.length}
+                                onChange={toggleSelectAll}
+                                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                {selectedResumes.size === 0 ? "Select All" : `${selectedResumes.size} Selected`}
+                            </span>
+                        </div>
+                    )}
+
                     <div className="divide-y divide-slate-100">
                         {loadingResumes ? (
                             <div className="p-8 text-center">
@@ -1059,7 +1152,13 @@ function App() {
                             </div>
                         ) : resumesList.length > 0 ? (
                             resumesList.map((resume) => (
-                                <div key={resume.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center gap-4">
+                                <div key={resume.id} className={`p-4 hover:bg-slate-50 transition-colors flex items-center gap-4 ${selectedResumes.has(resume.id) ? 'bg-emerald-50/50' : ''}`}>
+                                    <input 
+                                        type="checkbox"
+                                        checked={selectedResumes.has(resume.id)}
+                                        onChange={() => toggleResumeSelection(resume.id)}
+                                        className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                    />
                                     <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
                                         <FileText size={20} />
                                     </div>
@@ -1067,13 +1166,22 @@ function App() {
                                         <h3 className="text-sm font-semibold text-slate-800">{resume.filename}</h3>
                                         <p className="text-xs text-slate-500">ID: {resume.id}</p>
                                     </div>
-                                    <button 
-                                        onClick={() => handleViewResume(resume)}
-                                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
-                                    >
-                                        <Eye size={16} />
-                                        View
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => handleViewResume(resume)}
+                                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
+                                        >
+                                            <Eye size={16} />
+                                            View
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeleteResume(resume)}
+                                            className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
+                                        >
+                                            <Trash2 size={16} />
+                                            Delete
+                                        </button>
+                                    </div>
                                 </div>
                             ))
                         ) : (
